@@ -2,6 +2,7 @@
 </p>
 
 # epub-press-clients
+
 > Easy to use clients for building ebooks with [EpubPress](https://epub.press).
 
 Backend code can be found in [haroldtreen/epub-press](https://github.com/haroldtreen/epub-press).
@@ -9,9 +10,13 @@ Backend code can be found in [haroldtreen/epub-press](https://github.com/haroldt
 Follow us on [Twitter](https://twitter.com/Epub_Press).
 
 ## Overview
+
 EpubPress is a service for stitching articles/blogs/webpages into a customized ebook.
 
+**Forked and updated to Manifest V3**
+
 #### 🌟 Benefits 🌟
+
 EpubPress makes reading the web more enjoyable!
 
 - Downloads your articles for offline reading.
@@ -29,7 +34,7 @@ EpubPress makes reading the web more enjoyable!
 
 Source code for the EpubPress chrome extension. The extension allows you to build ebooks by selecting articles from your currently open tabs.
 
-**It is available on the [Chrome Store](https://chrome.google.com/webstore/detail/epubpress/pnhdnpnnffpijjbnhnipkehhibchdeok)**  
+**It is available on the [Chrome Store](https://chrome.google.com/webstore/detail/epubpress/pnhdnpnnffpijjbnhnipkehhibchdeok)**
 
 See the Readme [here](./packages/epub-press-chrome/README.md)
 
@@ -48,12 +53,12 @@ See the Readme [here](./packages/epub-press-js/README.md)
 
 A set of ready to use widgets for integration by publishers. Give your users the ability to download your content in an ebook.
 
-**Development/release is on the Roadmap.***
+**Development/release is on the Roadmap.\***
 
 See the Readme [here](./packages/epub-press-widgets/README.md)
 
-
 ## Roadmap 🛣
+
 - Widgets.
 - Ability to share your generated creations with others.
 - Custom cover page.
@@ -64,6 +69,7 @@ Have any awesome ideas? Suggestions? Feature requests? Would love to hear them!
 feedback@epub.press
 
 ## Bug Reporting 🐛
+
 Create an [issue](https://github.com/haroldtreen/epub-press-clients/issues) in Github.
 
 **OR**
