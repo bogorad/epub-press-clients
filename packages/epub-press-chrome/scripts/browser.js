@@ -2,174 +2,165 @@ import Promise from 'bluebird';
 import sanitize from 'sanitize-filename';
 
 class Browser {
-    static isValidUrl(url) {
-        let matchesValid = true;
-        let matchesInvalid = false;
+  static isValidUrl(url) {
+    let matchesInvalid = false;
+    let matchesValid = true;
+    const invalidRegex = [/epub\.press/i, /chrome:\/\//i, /localhost/i];
+    const validRegex = [/http/i];
 
-        const invalidRegex = [/\.pdf$/i, /\.jpg$/i, /\.png$/, /\.gif$/];
-        const validRegex = [/^http/];
+    invalidRegex.forEach((regex) => {
+      matchesInvalid = matchesInvalid || regex.test(url);
+    });
 
-        invalidRegex.forEach((regex) => {
-            matchesInvalid = matchesInvalid || regex.test(url);
+    validRegex.forEach((regex) => {
+      matchesValid = matchesValid && regex.test(url);
+    });
+
+    return !matchesInvalid && matchesValid;
+  }
+
+  static filterUrls(urls) {
+    return (urls || []).filter(Browser.isValidUrl);
+  }
+
+  static isBackgroundMsg(sender) {
+    // In MV3, the service worker has no URL. We identify it by the lack of a tab.
+    return !sender.tab;
+  }
+
+  static isPopupMsg(sender) {
+    return sender.url && sender.url.indexOf('popup') > -1;
+  }
+
+  static getCurrentWindowTabs() {
+    let promise;
+    try {
+      promise = new Promise((resolve, reject) => {
+        chrome.windows.getCurrent({ populate: true }, (currentWindow) => {
+          if (currentWindow && currentWindow.tabs) {
+            const websiteTabs = currentWindow.tabs.filter(tab => Browser.isValidUrl(tab.url));
+            resolve(websiteTabs);
+          } else {
+            reject(new Error('No tabs!'));
+          }
         });
-        validRegex.forEach((regex) => {
-            matchesValid = matchesValid && regex.test(url);
+      });
+    } catch (e) {
+      promise = new Promise((resolve) => {
+        resolve(null);
+      });
+    }
+    return promise;
+  }
+
+  static getTabsHtml(tabs) {
+    const htmlPromises = tabs.map(
+      tab => new Promise((resolve) => {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => document.documentElement.outerHTML,
+        }, (injectionResults) => {
+          if (chrome.runtime.lastError) {
+            // Handle error, e.g., if the tab was closed or the script couldn't be injected
+            console.error(chrome.runtime.lastError.message);
+            resolve(null);
+            return;
+          }
+          // The result is an array of InjectionResult objects. We expect only one.
+          const html = injectionResults && injectionResults[0] ? injectionResults[0].result : undefined;
+          const updatedTab = { ...tab, content: html };
+          if (html && html.match(/html/i)) {
+            resolve(updatedTab);
+          } else {
+            resolve(null);
+          }
         });
+      }),
+    );
 
-        return matchesValid && !matchesInvalid;
-    }
+    return Promise.all(htmlPromises);
+  }
 
-    static filterUrls(urls) {
-        return (urls || []).filter(Browser.isValidUrl);
-    }
+  static getLocalStorage(fields) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(fields, (state) => {
+        resolve(state);
+      });
+    });
+  }
 
-    static isBackgroundMsg(sender) {
-        return sender.url.indexOf('popup') < 0;
-    }
+  static setLocalStorage(keyValues) {
+    chrome.storage.local.set(keyValues);
+  }
 
-    static isPopupMsg(sender) {
-        return sender.url.indexOf('popup') > -1;
-    }
+  static sendMessage(...args) {
+    chrome.runtime.sendMessage(...args);
+  }
 
-    static getCurrentWindowTabs() {
-        let promise;
-        if (chrome) {
-            promise = new Promise((resolve, reject) => {
-                chrome.windows.getCurrent({ populate: true }, (currentWindow) => {
-                    if (currentWindow.tabs) {
-                        const websiteTabs = currentWindow.tabs.filter(tab => Browser.isValidUrl(tab.url));
-                        resolve(websiteTabs);
-                    } else {
-                        reject(new Error('No tabs!'));
-                    }
-                });
-            });
+  static onBackgroundMessage(cb) {
+    chrome.runtime.onMessage.addListener((request, sender) => {
+      if (Browser.isBackgroundMsg(sender)) {
+        cb(request, sender);
+      }
+    });
+  }
+
+  static onForegroundMessage(cb) {
+    chrome.runtime.onMessage.addListener((request, sender) => {
+      if (Browser.isPopupMsg(sender)) {
+        cb(request, sender);
+      }
+    });
+  }
+
+  static download(params) {
+    return new Promise((resolve, reject) => {
+      const sanitizedParams = { ...params, filename: sanitize(params.filename) };
+      chrome.downloads.download(sanitizedParams, (downloadId) => {
+        const downloadListener = (downloadInfo) => {
+          if (downloadInfo.id === downloadId) {
+            if (downloadInfo.error) {
+              chrome.downloads.onChanged.removeListener(downloadListener);
+              reject(downloadInfo.error);
+            } else if (downloadInfo.state && downloadInfo.state.current === 'complete') {
+              chrome.downloads.onChanged.removeListener(downloadListener);
+              resolve();
+            }
+          }
+        };
+
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
         } else {
-            promise = new Promise((resolve) => {
-                resolve(null);
-            });
+          chrome.downloads.onChanged.addListener(downloadListener);
         }
-        return promise;
-    }
+      });
+    });
+  }
 
-    static getTabsHtml(tabs) {
-        const code = 'document.documentElement.outerHTML';
-        const htmlPromises = tabs.map(
-            tab => new Promise((resolve) => {
-                chrome.tabs.executeScript(tab.id, { code }, (html) => {
-                    const updatedTab = tab;
-                    if (html && html[0] && html[0].match(/html/i)) {
-                        updatedTab.html = html[0];
-                    } else {
-                        updatedTab.html = null;
-                    }
-                    resolve(updatedTab);
-                });
-            }),
-        );
+  static baseUrl() {
+    return chrome.runtime.getManifest().homepage_url;
+  }
 
-        return Promise.all(htmlPromises);
-    }
+  static getManifest() {
+    return chrome.runtime.getManifest();
+  }
 
-    static getLocalStorage(fields) {
-        let promise;
-        if (chrome) {
-            promise = new Promise((resolve) => {
-                chrome.storage.local.get(fields, (state) => {
-                    resolve(state);
-                });
-            });
-        }
-        return promise;
-    }
+  static getErrorMsg(location, xhr) {
+    const errorCodes = {
+      // Book Create Errors
+      400: 'There was a problem with the request. Is EpubPress up to date?',
+      422: 'Request contained invalid data.',
+      500: 'Unexpected server error.',
+      503: 'Server took too long to respond.',
 
-    static setLocalStorage(keyValues) {
-        chrome.storage.local.set(keyValues);
-    }
+      // Download Errors
+      SERVER_FAILED: 'Server error while downloading.',
+      SERVER_BAD_CONTENT: 'Book could not be found',
+    };
 
-    static sendMessage(...args) {
-        chrome.runtime.sendMessage(...args);
-    }
-
-    static onBackgroundMessage(cb) {
-        chrome.runtime.onMessage.addListener((request, sender) => {
-            if (Browser.isBackgroundMsg(sender)) {
-                cb(request, sender);
-            }
-        });
-    }
-
-    static onForegroundMessage(cb) {
-        chrome.runtime.onMessage.addListener((request, sender) => {
-            if (Browser.isPopupMsg(sender)) {
-                cb(request, sender);
-            }
-        });
-    }
-
-    static download(params) {
-        let promise;
-        const sanitizedParams = { ...params, filename: sanitize(params.filename) };
-        if (chrome) {
-            promise = new Promise((resolve, reject) => {
-                chrome.downloads.download(sanitizedParams, (downloadId) => {
-                    const downloadListener = (downloadInfo) => {
-                        if (downloadInfo && downloadInfo.id === downloadId) {
-                            if (downloadInfo.error) {
-                                chrome.downloads.onChanged.removeListener(downloadListener);
-                                reject(downloadInfo.error);
-                            } else if (
-                                downloadInfo.endTime
-                                || downloadInfo.state.current === 'complete'
-                            ) {
-                                chrome.downloads.onChanged.removeListener(downloadListener);
-                                resolve();
-                            }
-                        } else {
-                            reject(chrome.runtime.lastError);
-                        }
-                    };
-                    chrome.downloads.onChanged.addListener(downloadListener);
-                });
-            });
-        }
-        return promise;
-    }
-
-    static baseUrl() {
-        return chrome.runtime.getManifest().homepage_url;
-    }
-
-    static getManifest() {
-        return chrome.runtime.getManifest();
-    }
-
-    static getErrorMsg(location, xhr) {
-        let msg = location ? `${location}:  ` : '';
-
-        msg
-            += xhr.responseText
-            || Browser.ERROR_CODES[xhr.statusText]
-            || Browser.ERROR_CODES[xhr.status]
-            || Browser.ERROR_CODES[xhr.current]
-            || 'Unknown';
-
-        return msg;
-    }
+    return errorCodes[xhr.status] || `An unexpected error occured: ${location}`;
+  }
 }
-
-Browser.ERROR_CODES = {
-    // Book Create Errors
-    0: 'Server is down. Please try again later.',
-    400: 'There was a problem with the request. Is EpubPress up to date?',
-    404: 'Resource not found.',
-    500: 'Unexpected server error.',
-    503: 'Server took too long to respond.',
-    timeout: 'Request took too long to complete.',
-    error: undefined,
-    // Download Errors
-    SERVER_FAILED: 'Server error while downloading.',
-    SERVER_BAD_CONTENT: 'Book could not be found',
-};
 
 export default Browser;
